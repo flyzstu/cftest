@@ -1,32 +1,107 @@
 name: Build and Push Docker Image
 
 on:
+  workflow_dispatch:
+    inputs:
+      cfdata_version:
+        description: 'cfdata version to build (branch/tag)'
+        required: false
+        default: 'main'
+        type: string
+      push_image:
+        description: 'Push image to registry'
+        required: false
+        default: true
+        type: boolean
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
+    paths:
+      - 'Dockerfile'
+      - '.github/workflows/docker-build.yml'
+      - 'cfdata.go'
+      - 'index.html'
+  schedule:
+    # Build daily at 00:00 UTC to get latest base image updates
+    - cron: '0 0 * * *'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/cfdata-web
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-
-      - name: Build Go binary (Verification)
-        run: go build -v ./...
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix={{branch}}-
+            type=ref,event=branch
+            type=schedule,pattern={{date 'YYYYMMDD'}}
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.cfdata_version }}"
+          else
+            VERSION="main"
+          fi
+          echo "cfdata_version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building with version: ${VERSION}"
+
+      - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: false
-          tags: cfdata:latest
+          file: ./Dockerfile
+          push: ${{ (github.event_name != 'workflow_dispatch') || inputs.push_image }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+      - name: Generate build summary
+        run: |
+          echo "### 🦞 cfdata Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Version:** \`${{ steps.version.outputs.cfdata_version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.push_image }}" = "true" ]; then
+              echo "✅ Image pushed to registry" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "ℹ️ Image built but not pushed (manual trigger with push disabled)" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "✅ Image pushed to registry" >> $GITHUB_STEP_SUMMARY
+          fi
