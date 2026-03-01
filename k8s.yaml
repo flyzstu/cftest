@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cfdata-deployment
+  labels:
+    app: cfdata-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cfdata-web
+  template:
+    metadata:
+      labels:
+        app: cfdata-web
+    spec:
+      containers:
+      - name: cfdata-web
+        image: ghcr.io/flyzstu/cfdata-web:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 13335
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 13335
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 13335
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: cfdata-service
+spec:
+  selector:
+    app: cfdata-web
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 13335
+  type: ClusterIP
