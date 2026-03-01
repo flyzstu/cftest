@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   cfdata:
-    build: .
+    image: ghcr.io/flyzstu/cfdata-web:latest
     container_name: cfdata-web
     ports:
       - "13335:13335"
