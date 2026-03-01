@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  cfdata:
+    build: .
+    container_name: cfdata-web
+    ports:
+      - "13335:13335"
+    restart: unless-stopped
