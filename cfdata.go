@@ -638,7 +638,6 @@ func runSpeedTest(ws *websocket.Conn, ip string, port int) {
 	req, _ := http.NewRequest("GET", fullURL, nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0")
 
-	start := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
 		sendWSMessage(ws, "speed_test_result", map[string]string{
