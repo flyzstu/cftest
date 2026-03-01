@@ -2,17 +2,20 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"regexp"
 	"sort"
 	"strconv"
@@ -125,9 +128,32 @@ func main() {
 	fmt.Printf("测速地址: %s\n", speedTestURL)
 
 	// 3. 启动 HTTP 服务
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		fmt.Printf("启动失败: %v\n", err)
+	server := &http.Server{
+		Addr:    addr,
+		Handler: nil,
 	}
+
+	fmt.Printf("服务启动于 http://localhost:%d\n", listenPort)
+	fmt.Printf("测速地址: %s\n", speedTestURL)
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("启动失败: %v\n", err)
+		}
+	}()
+
+	// 优雅停机
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt)
+	<-quit
+	fmt.Println("正在关闭服务...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatal("强制关闭服务:", err)
+	}
+	fmt.Println("服务已退出")
 }
 
 // ----------------------- WebSocket 处理 -----------------------
@@ -139,6 +165,20 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer ws.Close()
+
+	// 开启心跳检测，防止连接断开
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := ws.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
+			}
+		}
+	}()
 
 	for {
 		// 读取客户端消息
