@@ -23,8 +23,10 @@ RUN apk --no-cache add ca-certificates
 
 # Copy binary from builder
 COPY --from=builder /app/cfdata .
-# Copy data directory
-COPY --from=builder /app/cfdata-web ./cfdata-web
+# Copy data files directly to WORKDIR
+COPY --from=builder /app/cfdata-web/locations.json .
+COPY --from=builder /app/cfdata-web/ips-v4.txt .
+COPY --from=builder /app/cfdata-web/ips-v6.txt .
 
 # Expose the default port
 EXPOSE 13335
